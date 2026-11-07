@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>西华大学美食/地图</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css" />
+    <!-- 引入图钉聚合插件样式 (换用 cdnjs 极其稳定) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.4.1/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.4.1/MarkerCluster.Default.css" />
+    <!-- 引入图片压缩库 -->
+    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+</head>
+<body>
+
+    <div id="map"></div>
+    <!-- 加载小贴士 -->
+    <div id="loading-tip" class="hidden">
+        <div class="tip-content">
+            <span class="tip-icon">💡</span>
+            <span id="tip-text">正在寻找好吃的...</span>
+        </div>
+    </div>
+    <div id="app-panel">
+        <div id="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" placeholder="搜索店名或特色...">
+            <div id="search-results"></div>
+        </div>
+        <div id="online-filter-bar">
+            <button class="active" onclick="filterOnline('全部', this)">全部类型</button>
+            <button onclick="filterOnline('仅线下', this)">仅线下</button>
+            <button onclick="filterOnline('仅线上', this)">仅线上</button>
+            <button onclick="filterOnline('线上线下都有', this)">线上线下都有</button>
+        </div>
+        <div id="list-wrapper">
+            <div id="list-content"></div>
+        </div>
+        <div id="bottom-controls">
+            <div id="filter-bar">
+                <!-- 区域下拉框 -->
+                <div class="custom-dropdown" id="zone-dropdown">
+                    <div class="dropdown-trigger">
+                        <span id="zone-trigger-text">全部区域</span>
+                        <span class="dropdown-arrow">▼</span>
+                    </div>
+                    <!-- 注意：因为我们在底部，所以菜单要向上弹，菜单内容由 JS 生成 -->
+                    <ul class="dropdown-menu" id="zone-menu"></ul>
+                </div>
+
+                <!-- 分类下拉框 -->
+                <div class="custom-dropdown" id="category-dropdown">
+                    <div class="dropdown-trigger">
+                        <span id="category-trigger-text">全部分类</span>
+                        <span class="dropdown-arrow">▼</span>
+                    </div>
+                    <ul class="dropdown-menu" id="category-menu">
+                        <li class="dropdown-item active" data-value="全部">全部分类</li>
+                        <li class="dropdown-item" data-value="主食小吃">主食小吃</li>
+                        <li class="dropdown-item" data-value="甜品饮料">甜品饮料</li>
+                        <li class="dropdown-item" data-value="诊所药店">诊所药店</li>
+                    </ul>
+                </div>
+            </div>
+            <div id="drag-handle">
+                <span id="arrow-icon">▼</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="fab-container">
+        <!-- 展开后的子按钮组 -->
+        <div id="fab-actions">
+            <button class="fab-action-btn" id="btn-locate">我的位置</button>
+            <button class="fab-action-btn" id="btn-add">添加店铺</button>
+            <button class="fab-action-btn" id="btn-profile">我的足迹</button>
+                        <button class="fab-action-btn" id="btn-random">吃啥盲盒</button>
+                        <button class="fab-action-btn" id="btn-announcement">系统公告</button>
+        </div>
+        
+        <!-- 主开关按钮 -->
+        <button id="fab-main-btn">☰ </button>
+    </div>
+
+       <!-- 详情弹窗 -->
+    <div id="detail-modal" class="hidden">
+        <div id="modal-content">
+            <span id="close-modal">✖</span>
+            
+            <!-- 上半部分：店铺信息 -->
+            <div id="modal-info-section">
+                <h3 id="modal-title">店名</h3>
+                <p id="modal-info">信息...</p>
+                <!-- 联系方式与环境图 -->
+                <div id="shop-extra-info" style="font-size: 13px; margin-bottom: 10px; color: #555;"></div>
+                <img id="shop-env-img" src="" style="display: none; width: 100%; border-radius: 8px; margin-bottom: 10px; object-fit: cover; max-height: 150px;">
+                <!-- 店铺点赞按钮 -->
+                <div id="shop-like-area" style="margin: 15px 0;">
+                    <button id="shop-like-btn">👍 推荐这家店 (<span id="shop-like-count">0</span>)</button>
+                </div>
+                <!-- 特色展示与编辑区 -->
+                <div id="desc-display-area">
+                    <p id="modal-desc" style="margin-bottom: 5px;">✨ 本店特色：暂无补充</p>
+                    <button id="edit-desc-btn">✏️ 补充/修改特色</button>
+                </div>
+
+                <div id="desc-edit-area" style="display: none;">
+                    <textarea id="edit-desc-input" placeholder="这里有什么好吃的？或者有什么坑？" style="width: 100%; height: 50px; border-radius: 6px; border: 1px solid #ddd; padding: 8px; margin-bottom: 5px; box-sizing: border-box; resize: none;"></textarea>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="save-desc-btn" style="flex: 1; padding: 8px; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">保存特色</button>
+                        <button id="cancel-desc-btn" style="flex: 1; padding: 8px; background: #f0f0f0; color: #333; border: none; border-radius: 6px; cursor: pointer;">取消</button>
+                    </div>
+                </div>
+                <!--菜单展示区 -->
+                <div style="margin: 15px 0 5px 0; border-top: 1px dashed #eee; padding-top: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 style="margin: 0;">招牌菜单</h4>
+                        <button id="open-add-dish-btn" style="background: none; border: none; color: #4CAF50; font-weight: bold; cursor: pointer;">+ 添加菜品</button>
+                    </div>
+                    <!-- 菜单横向滚动容器 -->
+                    <div id="dishes-container" style="display: flex; overflow-x: auto; gap: 10px; padding: 10px 0;">
+                        <!-- 菜品卡片会动态生成在这里 -->
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- 下半部分：评论区 -->
+            <div id="comments-section">
+                <!--  改造：排序选项卡 -->
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin: 15px 0 10px 0;">
+                    <h4 style="margin: 0;">大家怎么说</h4>
+                    <div id="sort-controls">
+                        <button class="sort-btn active" onclick="changeSort('newest', this)">最新</button>
+                        <button class="sort-btn" onclick="changeSort('hottest', this)">最热</button>
+                    </div>
+                </div>
+                
+                <!-- 评论列表展示区 -->
+                <div id="comments-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px; background: #fafafa; border-radius: 8px; padding: 10px;">
+                    <p style="color: #888; font-size: 13px; text-align: center;">暂无评论，快来抢沙发！</p>
+                </div>
+
+                <!-- 发评论输入区 (保持不变) -->
+                <div id="add-comment-area">
+                    <input type="text" id="comment-nickname" placeholder="你的昵称（如：干饭王）" style="margin-bottom: 8px;">
+                    <textarea id="comment-input" placeholder="说点什么吧..."></textarea>
+                    <button id="submit-comment-btn">发送评论</button>
+                </div>
+            </div>
+        </div>
+        <!-- 添加菜品表单弹窗 -->
+        <div id="add-dish-modal" class="hidden">
+            <div class="modal-content-small">
+                <span id="close-dish-modal" class="close-btn">✖</span>
+                <h3>添加新菜品</h3>
+                <div class="form-group">
+                    <label>菜名：</label>
+                    <input type="text" id="dish-name" placeholder="比如：招牌黄焖鸡">
+                </div>
+                <div class="form-group">
+                    <label>价格：</label>
+                    <input type="text" id="dish-price" placeholder="比如：15元">
+                </div>
+                <div class="form-group">
+                    <label>菜品图片（可选）：</label>
+                    <input type="file" id="dish-image" accept="image/*">
+                </div>
+                <button id="submit-dish-btn" class="primary-btn">保存菜品</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加地点表单弹窗 -->
+    <div id="add-modal" class="hidden">
+        <div id="add-modal-content">
+            <span id="close-add-modal">✖</span>
+            <h3>添加新地点</h3>
+            
+            <div class="form-group">
+                <label>线上/线下：</label>
+                <select id="add-is-online">
+                    <option value="仅线下">仅线下</option>
+                    <option value="仅线上">仅线上</option>
+                    <option value="线上线下都有">线上线下都有</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>所属区域：</label>
+                <select id="add-zone">
+                    <option value="">请选择区域</option>
+                    <option value="一食堂">一食堂</option>
+                    <option value="二食堂">二食堂</option>
+                    <option value="三食堂">三食堂</option>
+                    <option value="四食堂">四食堂</option>
+                    <option value="五食堂">五食堂</option>
+                    <option value="临江苑">临江苑</option>
+                    <option value="德馨苑">德馨苑</option>
+                    <option value="锦地苑">锦地苑</option>
+                    <option value="侧门">侧门</option>
+                    <option value="南门">南门</option>
+                    <option value="西门">西门</option>
+                    <option value="西华记忆">西华记忆</option>
+                    <option value="老宿舍">老宿舍</option>
+                    <option value="custom">+ 自定义区域</option>
+                </select>
+                <input type="text" id="custom-zone-input" placeholder="输入自定义区域名" style="display:none; margin-top:5px;">
+            </div>
+
+            <div class="form-group">
+                <label>店名：</label>
+                <input type="text" id="add-name" placeholder="比如：蜜雪冰城">
+                <!-- 已有店铺提示区 -->
+                <div id="existing-shops-tip" style="font-size: 12px; color: #888; margin-top: 5px; line-height: 1.4;"></div>
+            </div>
+           <!-- 联系方式/外卖平台 -->
+            <div class="form-group" id="contact-group">
+                <label>联系方式/外卖平台（选填）：</label>
+                <input type="text" id="add-contact" placeholder="比如：美团搜xxx、微信xxx">
+            </div>
+            
+            <!-- 店铺环境图 -->
+            <div class="form-group" id="env-image-group">
+                <label>店铺环境图（选填，仅线下）：</label>
+                <input type="file" id="add-env-image" accept="image/*" multiple>
+            </div>
+            <div class="form-group">
+                <label>该店特色：</label>
+                <textarea id="add-feature" placeholder="比如：量大管饱、有点辣、老板人很好..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>分类：</label>
+                <select id="add-category">
+                    <option value="主食小吃">主食小吃</option>
+                    <option value="甜品饮料">甜品饮料</option>
+                    <option value="诊所药店">诊所药店</option>
+                </select>
+            </div>
+            
+            <p id="add-location-status" style="font-size: 12px; color: #888; margin-bottom: 10px;">
+                📍 正在获取定位... 您当前的位置将作为您上传的店铺位置。
+            </p>
+            
+            <button id="submit-place-btn">提交并保存到云端</button>
+        </div>
+    </div>
+    <!-- 个人中心弹窗 -->
+    <div id="profile-modal" class="hidden">
+        <div id="profile-modal-content">
+            <span id="close-profile-modal">✖</span>
+            <h3>我的足迹</h3>
+            
+            <div id="my-comments-list">
+                <!-- 我的评论会生成在这里 -->
+            </div>
+            <!-- 意见反馈入口 -->
+            <div id="feedback-entry">
+                ✉️ 意见与反馈
+            </div>
+        </div>
+    </div>
+        <!-- 全屏菜单瀑布流弹窗 -->
+    <div id="full-menu-modal" class="hidden">
+        <div id="full-menu-header">
+            <span id="full-menu-shop-name">店铺菜单</span>
+            <span id="close-full-menu" style="cursor: pointer; font-size: 20px;">✖</span>
+        </div>
+        <!-- 这里是瀑布流容器 -->
+        <div id="full-menu-grid">
+            <!-- 全屏菜品卡片会生成在这里 -->
+        </div>
+        
+        <!-- 右下角悬浮按钮组 -->
+        <div id="full-menu-actions">
+            <button id="floating-add-dish-btn">➕</button>
+            <button id="scroll-to-top-btn" class="hidden">⬆️</button>
+        </div>
+    </div>
+    <!-- 全屏图集查看器 -->
+    <div id="gallery-modal" class="hidden">
+        <span id="close-gallery">✖</span>
+        <div class="gallery-controls">
+            <button id="gallery-prev">❮</button>
+            <span id="gallery-counter">1 / 1</span>
+            <button id="gallery-next">❯</button>
+        </div>
+        <img id="gallery-main-img" src="" alt="大图">
+    </div>
+        <!-- 意见反馈弹窗 -->
+    <div id="feedback-modal" class="hidden">
+        <div class="modal-content-small">
+            <span id="close-feedback-modal" class="close-btn">✖</span>
+            <h3>意见反馈</h3>
+            
+            <div class="form-group">
+                <label>问题类型：</label>
+                <select id="fb-type">
+                    <option value="Bug报错">🐛 Bug报错（页面卡死、功能失灵）</option>
+                    <option value="举报虚假">🚫 举报虚假/重复信息</option>
+                    <option value="新功能建议">💡 新功能建议</option>
+                    <option value="其他">💬 其他</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>问题描述：</label>
+                <textarea id="fb-content" placeholder="请详细描述您遇到的问题或建议..." style="height: 80px; resize: none;"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>上传截图（可选）：</label>
+                <input type="file" id="fb-image" accept="image/*">
+            </div>
+
+            <div class="form-group">
+                <label>您的联系方式（选填，方便我们回复）：</label>
+                <input type="text" id="fb-contact" placeholder="QQ、微信或邮箱">
+            </div>
+
+            <p style="font-size: 11px; color: #888; margin: 5px 0 10px 0;">
+                * 您的反馈将加密发送至开发者后台，联系方式绝不泄露。
+            </p>
+
+            <button id="submit-feedback-btn" class="primary-btn">发送反馈</button>
+        </div>
+    </div>
+    <!-- 系统公告弹窗 -->
+    <div id="announcement-modal" class="hidden">
+        <div id="announcement-content-box">
+            <span id="close-announcement" class="close-btn">✖</span>
+            <h3 style="margin-top: 0; color: #4CAF50;">📢 系统公告</h3>
+            <!-- 公告内容会动态生成在这里 -->
+            <div id="announcement-text" style="font-size: 14px; color: #333; line-height: 1.6; margin-top: 15px;">
+                加载中...
+            </div>
+            <button id="agree-announcement" class="primary-btn" style="margin-top: 20px;">我知道了</button>
+        </div>
+    </div>
+        <!-- 随机盲盒弹窗 -->
+    <div id="random-modal" class="hidden">
+        <div id="random-content-box">
+            <span id="close-random" class="close-btn">✖</span>
+            <h3 style="margin-top: 0; text-align: center; color: #ff5722;">🎲 命运的选择</h3>
+            
+            <!-- 选项卡 -->
+            <div class="random-tabs">
+                <button class="random-tab active" data-type="shop">🏪 抽个店</button>
+                <button class="random-tab" data-type="dish">🍔 抽道菜</button>
+            </div>
+
+            <!-- 展示结果的卡片（老虎机效果） -->
+            <div id="random-display-box">
+                <div id="random-result-name">准备好了吗？</div>
+                <div id="random-result-sub">点击下方按钮开始抽取</div>
+            </div>
+
+            <!-- 抽奖按钮 -->
+            <button id="start-random-btn" class="primary-btn" style="background: #ff5722;">开始抽取！</button>
+        </div>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <!-- 引入图钉聚合插件脚本 (换用 cdnjs 极其稳定) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.4.1/leaflet.markercluster.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
